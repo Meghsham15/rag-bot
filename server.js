@@ -15,7 +15,18 @@ import { RESUME_EXPORT_URL, portfolioProjects, extraFacts } from './knowledge.js
 dotenv.config();
 
 const app = express();
-app.use(cors());
+
+// Render (and other reverse proxies) terminate TLS and forward the client IP
+app.set("trust proxy", 1);
+
+const corsOrigin = process.env.CORS_ORIGIN;
+app.use(
+  cors(
+    corsOrigin
+      ? { origin: corsOrigin.split(",").map((origin) => origin.trim()).filter(Boolean) }
+      : undefined
+  )
+);
 app.use(express.json());
 
 const TOKEN_EXPIRED_MESSAGE = "The token has expired and no more questions can be asked.";
@@ -31,6 +42,14 @@ let tokenExpired = false;
 let geminiQuotaExceeded = false;
 let geminiQuotaResetAt = null;
 let geminiQuotaResetTimer = null;
+
+// Lightweight health check for Render (responds before RAG init finishes)
+app.get(["/", "/health"], (req, res) => {
+  res.status(200).json({
+    status: "ok",
+    ready: Boolean(geminiChain || groqChain),
+  });
+});
 
 function isTokenExpiredError(error) {
   const status = error?.status || error?.statusCode || error?.response?.status;
@@ -485,8 +504,10 @@ app.post('/api/chat', async (req, res) => {
   return sendQuotaExceeded(res);
 });
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, async () => {
-  console.log(`📡 Server running locally on http://localhost:${PORT}`);
+const HOST = process.env.HOST || "0.0.0.0";
+const PORT = Number(process.env.PORT) || 5000;
+
+app.listen(PORT, HOST, async () => {
+  console.log(`📡 Server listening on http://${HOST}:${PORT}`);
   await initializeBot();
 });
